@@ -1,0 +1,8 @@
+<resources>
+    <!-- Tema base para la Activity principal compatible con Jetpack Compose -->
+    <style name="Theme.RAMMonitorPro" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0F172A</item>
+        <item name="android:navigationBarColor">#0F172A</item>
+        <item name="android:windowBackground">#0F172A</item>
+    </style>
+</resources>

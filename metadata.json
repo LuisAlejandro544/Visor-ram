@@ -1,0 +1,6 @@
+{
+  "name": "RAM Monitor Pro",
+  "description": "Monitor de memoria RAM y procesos en segundo plano para Android con Kotlin",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

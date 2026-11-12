@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">RAM Monitor Pro</string>
+    <string name="notification_channel_name">Monitor de Memoria RAM</string>
+    <string name="notification_channel_desc">Notificación continua con el consumo actual de RAM en segundo plano</string>
+</resources>

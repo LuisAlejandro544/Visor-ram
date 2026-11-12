@@ -1,0 +1,53 @@
+name: Compilar APK Debug (Manual)
+
+# Este flujo se ejecuta ÚNICAMENTE de forma manual mediante 'workflow_dispatch'.
+# NO se activa automáticamente por commits (push) ni por pull requests.
+# Ideal para desarrolladores que trabajan desde el teléfono móvil:
+# puedes entrar a GitHub en el móvil, presionar "Run workflow" y descargar el APK directamente.
+on:
+  workflow_dispatch:
+    inputs:
+      build_notes:
+        description: 'Notas opcionales de la compilación'
+        required: false
+        default: 'Compilación manual sin caché desde el teléfono'
+
+jobs:
+  build-apk-debug:
+    name: Compilar APK Debug (Sin Caché)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código del repositorio (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Configurar Entorno Java 17 (JDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          # Sin caché de Gradle para garantizar una compilación 100% limpia desde cero
+          cache: ''
+
+      - name: Asignar permisos de ejecución a gradlew
+        run: |
+          chmod +x ./android/gradlew
+
+      - name: Compilar APK Debug (Sin Caché / Limpio)
+        working-directory: ./android
+        run: |
+          # Limpiamos artefactos previos y compilamos con --no-build-cache y --no-daemon
+          ./gradlew clean assembleDebug --no-daemon --no-build-cache --stacktrace
+
+      - name: Localizar y renombrar APK resultante
+        run: |
+          mkdir -p ./build-output
+          cp ./android/app/build/outputs/apk/debug/app-debug.apk ./build-output/RAMMonitorPro-debug.apk
+          ls -lh ./build-output/
+
+      - name: Subir APK como Artefacto Descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAMMonitorPro-Debug-APK
+          path: ./build-output/RAMMonitorPro-debug.apk
+          retention-days: 14
