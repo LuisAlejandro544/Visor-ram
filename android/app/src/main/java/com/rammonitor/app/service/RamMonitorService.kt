@@ -59,8 +59,8 @@ class RamMonitorService : Service() {
         private val _peakStatsState = MutableStateFlow(MemoryPeakStats.EMPTY)
         val peakStatsState: StateFlow<MemoryPeakStats> = _peakStatsState.asStateFlow()
 
-        // Caché en memoria para retener el pico individual de cada paquete durante la sesión
-        private val appPeakCache = mutableMapOf<String, Long>()
+        // Caché concurrente thread-safe para retener el pico individual de cada paquete durante la sesión
+        private val appPeakCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         private val _processListState = MutableStateFlow<List<ProcessInfo>>(emptyList())
         val processListState: StateFlow<List<ProcessInfo>> = _processListState.asStateFlow()
@@ -73,9 +73,7 @@ class RamMonitorService : Service() {
 
         /** Reinicia los registros de picos de la sesión para comenzar una nueva medición */
         fun resetPeakStats() {
-            synchronized(appPeakCache) {
-                appPeakCache.clear()
-            }
+            appPeakCache.clear()
             _peakStatsState.value = MemoryPeakStats(
                 sessionStartTime = System.currentTimeMillis()
             )
@@ -130,18 +128,14 @@ class RamMonitorService : Service() {
                     _memoryState.value = stats
 
                     // Pasamos la caché de picos para preservar y enriquecer los picos por app
-                    val processes = synchronized(appPeakCache) {
-                        memoryReader.readRunningProcesses(stats.totalRamBytes, appPeakCache)
-                    }
+                    val processes = memoryReader.readRunningProcesses(stats.totalRamBytes, appPeakCache)
                     _processListState.value = processes
 
-                    // Actualizamos la caché de picos individuales de cada app
-                    synchronized(appPeakCache) {
-                        processes.forEach { proc ->
-                            val prev = appPeakCache[proc.packageName] ?: 0L
-                            if (proc.ramUsageBytes > prev) {
-                                appPeakCache[proc.packageName] = proc.ramUsageBytes
-                            }
+                    // Actualizamos la caché de picos individuales de cada app de forma atómica y no bloqueante
+                    processes.forEach { proc ->
+                        val prev = appPeakCache[proc.packageName] ?: 0L
+                        if (proc.ramUsageBytes > prev) {
+                            appPeakCache[proc.packageName] = proc.ramUsageBytes
                         }
                     }
 

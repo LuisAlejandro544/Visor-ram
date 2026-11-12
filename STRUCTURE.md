@@ -41,7 +41,7 @@ Este documento detalla la organización de carpetas, responsabilidades de cada m
 │   │               └── theme/
 │   │                   ├── Color.kt                # Paleta técnica de alto contraste
 │   │                   └── Theme.kt                # Configuración de Material 3
-│   ├── gradle/wrapper/             # Distribución del Gradle Wrapper (8.9)
+│   ├── gradle/wrapper/             # Distribución del Gradle Wrapper (8.11.1)
 │   ├── build.gradle.kts            # Plugins globales (AGP 8.7.2, Kotlin 2.0.21)
 │   ├── gradle.properties           # Ajustes de memoria JVM y AndroidX
 │   ├── gradlew                     # Script de ejecución para Linux/macOS/Termux

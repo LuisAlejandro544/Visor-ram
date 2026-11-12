@@ -231,10 +231,20 @@ object ShizukuManager {
 
     /**
      * Ejecuta una orden de shell dentro del entorno privilegiado de Shizuku de forma no bloqueante.
+     * En la versión actual de la API de Shizuku (v13+), el método newProcess tiene visibilidad interna/privada;
+     * por ello se invoca mediante reflexión dinámica para mantener la capacidad de ejecución privileged am force-stop.
      */
     private suspend fun executePrivilegedCommand(cmd: String): Int = withContext(Dispatchers.IO) {
         try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val method = shizukuClass.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            method.isAccessible = true
+            val process = method.invoke(null, arrayOf("sh", "-c", cmd), null, null) as java.lang.Process
             process.waitFor()
         } catch (_: Exception) {
             -1

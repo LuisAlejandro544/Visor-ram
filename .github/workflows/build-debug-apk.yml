@@ -36,9 +36,9 @@ jobs:
       - name: Verificar y restaurar Gradle Wrapper JAR si no existe
         run: |
           if [ ! -s "./android/gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Aviso: gradle-wrapper.jar no encontrado o vacío. Descargando Gradle Wrapper 8.9..."
+            echo "Aviso: gradle-wrapper.jar no encontrado o vacío. Descargando Gradle Wrapper 8.11.1..."
             mkdir -p ./android/gradle/wrapper
-            curl -sLo ./android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
+            curl -sLo ./android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar"
           fi
           ls -lh ./android/gradle/wrapper/gradle-wrapper.jar
 

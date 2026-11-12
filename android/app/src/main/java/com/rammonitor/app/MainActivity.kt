@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
         var localMemoryStats by remember { mutableStateOf(serviceMemoryStats) }
         var localPeakStats by remember { mutableStateOf(servicePeakStats) }
         var localProcesses by remember { mutableStateOf(serviceProcesses) }
-        val localAppPeakCache = remember { mutableMapOf<String, Long>() }
+        val localAppPeakCache = remember { java.util.concurrent.ConcurrentHashMap<String, Long>() }
 
         val context = this@MainActivity
         val memoryReader = remember { MemoryReader(context) }

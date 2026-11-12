@@ -122,11 +122,9 @@ if [ ! -s "$CLASSPATH" ]; then
     mkdir -p "$APP_HOME/gradle/wrapper"
     echo "Aviso: gradle-wrapper.jar no encontrado en $CLASSPATH. Descargando automáticamente..." >&2
     if command -v curl >/dev/null 2>&1; then
-        curl -sLo "$CLASSPATH" "https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
+        curl -sLo "$CLASSPATH" "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$CLASSPATH" "https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
-    else
-        echo "Error: No se encontró curl ni wget para descargar gradle-wrapper.jar." >&2
+        wget -qO "$CLASSPATH" "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar"
     fi
 fi
 
