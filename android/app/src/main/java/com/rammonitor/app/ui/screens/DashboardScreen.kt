@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.res.painterResource
+import com.rammonitor.app.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -85,24 +88,34 @@ fun DashboardScreen(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Encabezado
+        // Encabezado con Logo Oficial
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "RAM Monitor Pro",
-                    color = TextPrimary,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_app_logo),
+                    contentDescription = "Logo de RAM Monitor Pro",
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
                 )
-                Text(
-                    text = "Monitoreo en tiempo real del kernel",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "RAM Monitor Pro",
+                        color = TextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Monitoreo en tiempo real del kernel",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             // Interruptor del servicio en segundo plano
@@ -588,6 +601,17 @@ fun MetricCard(
  */
 @Composable
 fun ProcessCompactCard(process: ProcessInfo) {
+    val context = LocalContext.current
+    val imageBitmap = remember(process.packageName) {
+        try {
+            val drawable = context.packageManager.getApplicationIcon(process.packageName)
+            androidx.core.graphics.drawable.toBitmap(drawable, 48, 48)
+                .let { androidx.compose.ui.graphics.asImageBitmap(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -602,21 +626,47 @@ fun ProcessCompactCard(process: ProcessInfo) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = process.appName,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-                Text(
-                    text = "${process.packageName} • PID: ${process.pid}",
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap,
+                        contentDescription = process.appName,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_app_logo),
+                        contentDescription = process.appName,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column {
+                    Text(
+                        text = process.appName,
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${process.packageName} • PID: ${process.pid}",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
             }
+
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = process.formattedRam(),

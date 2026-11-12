@@ -8,11 +8,13 @@ import android.os.Debug
 import android.os.Process
 import com.rammonitor.app.data.model.MemoryStats
 import com.rammonitor.app.data.model.ProcessInfo
+import com.rammonitor.app.data.shizuku.ShizukuManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Lector y analizador de memoria de bajo consumo.
@@ -22,14 +24,18 @@ import java.io.FileReader
  *    de memoria pesados se ejecuten en el hilo principal (UI Thread).
  * 2. Lee directamente `/proc/meminfo` para obtener métricas exactas del kernel de Linux:
  *    MemTotal, MemFree, MemAvailable, Buffers, Cached, SwapTotal, SwapFree.
- * 3. Complementa con [ActivityManager.MemoryInfo] para consultar los umbrales del sistema Android.
- * 4. Para procesos individuales, consulta PSS (Proportional Set Size) usando [ActivityManager.getProcessMemoryInfo],
- *    que es la métrica más precisa en sistemas operativos Linux/Android para medir la memoria compartida y privada.
+ * 3. Si Shizuku está conectado y autorizado, consulta la lista GLOBAL de procesos del sistema operativo
+ *    mediante 'dumpsys meminfo' / 'ps -A' superando la restricción de Android 8-15 que solo devuelve la app propia.
+ * 4. Implementa una caché [appDetailsCache] para no saturar el Binder de PackageManager y reducir drásticamente
+ *    el consumo de memoria y CPU propio.
  */
 class MemoryReader(private val context: Context) {
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val packageManager = context.packageManager
+
+    // Caché en memoria para evitar llamadas IPC repetitivas a PackageManager en cada ciclo
+    private val appDetailsCache = ConcurrentHashMap<String, Pair<String, Boolean>>()
 
     /**
      * Obtiene el estado global de la memoria RAM del dispositivo de forma asíncrona.
@@ -39,7 +45,6 @@ class MemoryReader(private val context: Context) {
         val memInfo = ActivityManager.MemoryInfo()
         activityManager.getMemoryInfo(memInfo)
 
-        // Valores por defecto basados en ActivityManager
         var totalBytes = memInfo.totalMem
         var availableBytes = memInfo.availMem
         val thresholdBytes = memInfo.threshold
@@ -49,7 +54,6 @@ class MemoryReader(private val context: Context) {
         var swapFreeBytes = 0L
         var cachedBytes = 0L
 
-        // Lectura de bajo nivel del kernel en /proc/meminfo para obtener ZRAM y buffers exactos
         try {
             val procMemInfo = File("/proc/meminfo")
             if (procMemInfo.exists() && procMemInfo.canRead()) {
@@ -73,10 +77,7 @@ class MemoryReader(private val context: Context) {
                     }
                 }
             }
-        } catch (_: Exception) {
-            // Si el kernel bloquea /proc/meminfo en algún dispositivo específico,
-            // nos mantenemos con los valores seguros de ActivityManager.
-        }
+        } catch (_: Exception) {}
 
         val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)
         val usedPercentage = if (totalBytes > 0) {
@@ -101,19 +102,78 @@ class MemoryReader(private val context: Context) {
     }
 
     /**
-     * Obtiene la lista de procesos activos y su consumo de memoria RAM.
-     * Ejecuta el análisis en [Dispatchers.Default] y [Dispatchers.IO] para evitar cualquier tirón en la interfaz.
+     * Obtiene la lista completa de procesos activos y su consumo de memoria RAM.
+     * 
+     * Estrategia de compatibilidad:
+     * 1. Si Shizuku está activo: Consulta 'dumpsys meminfo' con privilegios ADB/Root,
+     *    obteniendo el PSS de TODAS las apps del dispositivo (Chrome, WhatsApp, juegos, sistema).
+     * 2. Fallback: Si Shizuku aún no está conectado, consulta [ActivityManager.runningAppProcesses].
      */
     suspend fun readRunningProcesses(
         totalRamBytes: Long,
         appPeakMap: Map<String, Long> = emptyMap()
     ): List<ProcessInfo> = withContext(Dispatchers.IO) {
+        val myPid = Process.myPid()
+        var myPrivateDirtyKb = 0
+
+        // Calculamos la memoria privada real (Private Dirty) de nuestra propia app
+        try {
+            val selfMem = activityManager.getProcessMemoryInfo(intArrayOf(myPid))
+            myPrivateDirtyKb = selfMem.firstOrNull()?.totalPrivateDirty ?: 0
+        } catch (_: Exception) {}
+
+        // Intentamos obtener procesos mediante Shizuku primero si tiene privilegios
+        if (ShizukuManager.state.value.isPrivileged) {
+            val shizukuDumps = ShizukuManager.fetchRunningProcessesViaShizuku()
+            if (shizukuDumps.isNotEmpty()) {
+                val results = mutableListOf<ProcessInfo>()
+                for (dump in shizukuDumps) {
+                    val pssBytes = dump.pssKb * 1024L
+                    val (appName, isSystem) = getAppDetails(dump.packageName)
+
+                    val percentage = if (totalRamBytes > 0) {
+                        ((pssBytes.toDouble() / totalRamBytes.toDouble()) * 100.0).toFloat()
+                    } else {
+                        0f
+                    }
+
+                    val cachedPeak = appPeakMap[dump.packageName] ?: pssBytes
+                    val effectivePeak = maxOf(cachedPeak, pssBytes)
+                    val privDirty = if (dump.pid == myPid) myPrivateDirtyKb else 0
+
+                    val importanceLabel = if (dump.isForeground) {
+                        "Primer plano"
+                    } else if (isSystem) {
+                        "Servicio del sistema"
+                    } else {
+                        "Segundo plano"
+                    }
+
+                    results.add(
+                        ProcessInfo(
+                            pid = dump.pid,
+                            processName = dump.packageName,
+                            packageName = dump.packageName,
+                            appName = appName,
+                            ramUsageBytes = pssBytes,
+                            ramPercentage = percentage,
+                            isSystemApp = isSystem,
+                            importance = importanceLabel,
+                            pssKb = dump.pssKb,
+                            peakRamBytes = effectivePeak,
+                            privateDirtyKb = privDirty
+                        )
+                    )
+                }
+                return@withContext results.sortedByDescending { it.ramUsageBytes }
+            }
+        }
+
+        // Fallback clásico mediante ActivityManager cuando Shizuku no está disponible
         val runningProcesses = activityManager.runningAppProcesses ?: return@withContext emptyList()
         val pids = runningProcesses.map { it.pid }.toIntArray()
-
         if (pids.isEmpty()) return@withContext emptyList()
 
-        // Obtiene la memoria PSS precisa en bloques
         val memoryInfoArray = try {
             activityManager.getProcessMemoryInfo(pids)
         } catch (_: Exception) {
@@ -147,6 +207,7 @@ class MemoryReader(private val context: Context) {
 
             val cachedPeak = appPeakMap[pkgName] ?: pssBytes
             val effectivePeak = maxOf(cachedPeak, pssBytes)
+            val privDirty = if (appProcess.pid == myPid) (mem?.totalPrivateDirty ?: myPrivateDirtyKb) else 0
 
             results.add(
                 ProcessInfo(
@@ -159,26 +220,29 @@ class MemoryReader(private val context: Context) {
                     isSystemApp = isSystem,
                     importance = importanceLabel,
                     pssKb = pssKb,
-                    peakRamBytes = effectivePeak
+                    peakRamBytes = effectivePeak,
+                    privateDirtyKb = privDirty
                 )
             )
         }
 
-        // Ordenamos por mayor consumo de memoria descendente
         results.sortedByDescending { it.ramUsageBytes }
     }
 
     /**
      * Resuelve el nombre amigable de la aplicación y si es del sistema o de usuario.
+     * Utiliza [appDetailsCache] para evitar miles de llamadas IPC redundantes por minuto.
      */
     private fun getAppDetails(packageName: String): Pair<String, Boolean> {
-        return try {
-            val appInfo = packageManager.getApplicationInfo(packageName, 0)
-            val label = packageManager.getApplicationLabel(appInfo).toString()
-            val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            Pair(label, isSystem)
-        } catch (_: PackageManager.NameNotFoundException) {
-            Pair(packageName.substringAfterLast('.'), false)
+        return appDetailsCache.getOrPut(packageName) {
+            try {
+                val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                val label = packageManager.getApplicationLabel(appInfo).toString()
+                val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                Pair(label, isSystem)
+            } catch (_: PackageManager.NameNotFoundException) {
+                Pair(packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }, false)
+            }
         }
     }
 }

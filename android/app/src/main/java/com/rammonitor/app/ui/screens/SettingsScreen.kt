@@ -1,12 +1,16 @@
 package com.rammonitor.app.ui.screens
 
 import android.os.Build
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import com.rammonitor.app.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Security
@@ -53,12 +57,22 @@ fun SettingsScreen(memoryStats: MemoryStats) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Ajustes del Monitor",
-            color = TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_app_logo),
+                contentDescription = "Logo",
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Ajustes del Monitor",
+                color = TextPrimary,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         // Sección 0: Estado del Enlace Shizuku y Permisos
         Card(

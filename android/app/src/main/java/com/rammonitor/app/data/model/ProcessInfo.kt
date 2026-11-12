@@ -18,6 +18,7 @@ package com.rammonitor.app.data.model
  * @property importance Nivel de importancia de Android (Foreground, Visible, Service, Cached).
  * @property pssKb PSS en Kilobytes para cálculos precisos.
  * @property peakRamBytes Pico máximo de consumo en bytes registrado para este proceso durante la sesión.
+ * @property privateDirtyKb Memoria RAM privada exclusiva en KB (excluye librerías compartidas de Android).
  */
 data class ProcessInfo(
     val pid: Int,
@@ -29,10 +30,21 @@ data class ProcessInfo(
     val isSystemApp: Boolean = false,
     val importance: String = "Background",
     val pssKb: Int = 0,
-    val peakRamBytes: Long = ramUsageBytes
+    val peakRamBytes: Long = ramUsageBytes,
+    val privateDirtyKb: Int = 0
 ) {
     /** Formato amigable en Megabytes (ej: "340.5 MB") */
     fun ramInMb(): String = String.format("%.1f MB", ramUsageBytes / (1024.0 * 1024.0))
+
+    /** Formato amigable de la memoria privada exclusiva que liberaría si se detiene */
+    fun formattedPrivateDirty(): String {
+        val mb = privateDirtyKb / 1024.0
+        return if (mb >= 1024.0) {
+            String.format("%.2f GB", mb / 1024.0)
+        } else {
+            String.format("%.1f MB", mb)
+        }
+    }
 
     /** Formato amigable en Gigabytes si supera 1 GB */
     fun formattedRam(): String {

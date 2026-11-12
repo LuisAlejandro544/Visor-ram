@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +24,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.core.graphics.drawable.toBitmap
+import com.rammonitor.app.R
 import com.rammonitor.app.data.shizuku.ShizukuManager
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
@@ -76,17 +81,29 @@ fun ProcessListScreen(
                     .background(DarkSurface)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Text(
-                    text = "Procesos en Memoria",
-                    color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${filteredProcesses.size} procesos activos analizados",
-                    color = TextSecondary,
-                    fontSize = 12.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_app_logo),
+                        contentDescription = "Logo",
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Procesos en Memoria",
+                            color = TextPrimary,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${filteredProcesses.size} procesos activos analizados",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -217,7 +234,20 @@ fun ProcessListScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(text = "Paquete: ${proc.packageName}", color = TextSecondary, fontSize = 12.sp)
                     Text(text = "PID: ${proc.pid}", color = TextSecondary, fontSize = 12.sp)
-                    Text(text = "Memoria PSS actual: ${proc.formattedRam()} (${proc.pssKb} KB)", color = CyanGlow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Memoria PSS Total: ${proc.formattedRam()} (${proc.pssKb} KB)", color = CyanGlow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    if (proc.privateDirtyKb > 0) {
+                        Text(
+                            text = "Memoria Privada Real (Private Dirty): ${proc.formattedPrivateDirty()}",
+                            color = GreenOptimal,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Nota: El PSS incluye librerías del sistema compartidas entre apps. La memoria privada real es lo que ocupa exclusivamente esta aplicación.",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
                     Text(
                         text = "Pico registrado en sesión: ${proc.formattedPeakRam()}",
                         color = if (proc.peakRamBytes > proc.ramUsageBytes) YellowWarning else CyanGlow,
@@ -297,26 +327,61 @@ fun ProcessCard(
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
         shape = RoundedCornerShape(12.dp)
     ) {
+        val context = LocalContext.current
+        val imageBitmap = remember(process.packageName) {
+            try {
+                val drawable = context.packageManager.getApplicationIcon(process.packageName)
+                drawable.toBitmap(64, 64).asImageBitmap()
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = process.appName,
-                        color = TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "${process.packageName} • PID ${process.pid}",
-                        color = TextMuted,
-                        fontSize = 11.sp,
-                        maxLines = 1
-                    )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (imageBitmap != null) {
+                        Image(
+                            bitmap = imageBitmap,
+                            contentDescription = process.appName,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    } else {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_app_logo),
+                            contentDescription = process.appName,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column {
+                        Text(
+                            text = process.appName,
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "${process.packageName} • PID ${process.pid}",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 Column(horizontalAlignment = Alignment.End) {

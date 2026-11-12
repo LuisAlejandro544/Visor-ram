@@ -250,4 +250,127 @@ object ShizukuManager {
             -1
         }
     }
+
+    /**
+     * Consulta todos los procesos y aplicaciones en ejecución en el sistema operativo mediante
+     * privilegios de ADB/Root de Shizuku (ejecutando 'dumpsys meminfo' o 'ps -A').
+     * Supera la restricción del sandbox de Android 8-15 que solo devuelve la app actual.
+     */
+    suspend fun fetchRunningProcessesViaShizuku(): List<ShizukuProcessDump> = withContext(Dispatchers.IO) {
+        if (!_state.value.isPrivileged) return@withContext emptyList()
+        val results = mutableListOf<ShizukuProcessDump>()
+        try {
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val method = shizukuClass.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            method.isAccessible = true
+            // Ejecutamos 'dumpsys meminfo' para obtener el PSS exacto de todas las apps
+            val process = method.invoke(null, arrayOf("sh", "-c", "dumpsys meminfo"), null, null) as java.lang.Process
+
+            val reader = process.inputStream.bufferedReader()
+            var line: String?
+            var inProcessSection = false
+            // Coincide con líneas como: "    145,200K: com.whatsapp (pid 5610 / activities)"
+            val regex = Regex("""^\s*([\d,]+)K:\s+([^\s]+)\s+\(pid\s+(\d+)""")
+
+            while (reader.readLine().also { line = it } != null) {
+                val curLine = line ?: break
+                if (!inProcessSection) {
+                    if (curLine.contains("Total PSS by process:")) {
+                        inProcessSection = true
+                    }
+                    continue
+                }
+
+                // Fin de la sección de procesos para no procesar miles de líneas innecesarias
+                if (curLine.contains("Total PSS by OOM") ||
+                    curLine.contains("Total PSS by category") ||
+                    curLine.contains("Total RAM:")
+                ) {
+                    break
+                }
+
+                val match = regex.find(curLine)
+                if (match != null) {
+                    val pssKbStr = match.groupValues[1].replace(",", "")
+                    val pssKb = pssKbStr.toIntOrNull() ?: 0
+                    val pkgName = match.groupValues[2]
+                    val pid = match.groupValues[3].toIntOrNull() ?: 0
+
+                    val isActivities = curLine.contains("/ activities")
+                    val isForeground = isActivities || curLine.contains("top-activity")
+
+                    results.add(
+                        ShizukuProcessDump(
+                            pid = pid,
+                            packageName = pkgName,
+                            pssKb = pssKb,
+                            isForeground = isForeground
+                        )
+                    )
+                }
+            }
+            process.destroy()
+        } catch (_: Exception) {
+            // Si dumpsys falla temporalmente, probamos con ps -A
+        }
+
+        // Fallback rápido con 'ps -A -o PID,NAME,RSS' si dumpsys vino vacío
+        if (results.isEmpty()) {
+            try {
+                val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+                val method = shizukuClass.getDeclaredMethod(
+                    "newProcess",
+                    Array<String>::class.java,
+                    Array<String>::class.java,
+                    String::class.java
+                )
+                method.isAccessible = true
+                val process = method.invoke(null, arrayOf("sh", "-c", "ps -A -o PID,NAME,RSS"), null, null) as java.lang.Process
+                val reader = process.inputStream.bufferedReader()
+                var line: String?
+                var isHeader = true
+                while (reader.readLine().also { line = it } != null) {
+                    val curLine = line?.trim() ?: break
+                    if (isHeader) {
+                        isHeader = false
+                        continue
+                    }
+                    val parts = curLine.split("\\s+".toRegex())
+                    if (parts.size >= 3) {
+                        val pid = parts[0].toIntOrNull() ?: continue
+                        val name = parts[1]
+                        val rssKb = parts[2].toIntOrNull() ?: 0
+                        if (rssKb > 0 && (name.contains(".") || !name.startsWith("["))) {
+                            results.add(
+                                ShizukuProcessDump(
+                                    pid = pid,
+                                    packageName = name,
+                                    pssKb = rssKb,
+                                    isForeground = false
+                                )
+                            )
+                        }
+                    }
+                }
+                process.destroy()
+            } catch (_: Exception) {}
+        }
+
+        results
+    }
 }
+
+/**
+ * Representa una captura instantánea de proceso leída con privilegios Shizuku.
+ */
+data class ShizukuProcessDump(
+    val pid: Int,
+    val packageName: String,
+    val pssKb: Int,
+    val isForeground: Boolean = false
+)
