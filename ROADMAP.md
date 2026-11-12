@@ -19,7 +19,8 @@ Este documento describe la visión, fases de desarrollo e hitos futuros para **R
 
 ---
 
-## 🚀 Fase 2: Desglose Avanzado de Memoria y Telemetría Gráfica (Próxima Fase ⏳)
+## 🚀 Fase 2: Desglose Avanzado de Memoria y Telemetría Gráfica (En Progreso ⏳)
+- [x] **Registro y Telemetría de Picos de Consumo**: Medición en vivo del pico máximo global de RAM (%), valor en GB, hora exacta del pico, fluctuación mínima/máxima y mayor pico individual por aplicación con opción de reinicio de sesión.
 - [ ] **Historial Gráfico en Tiempo Real**: Gráfica de línea temporal (últimos 60 segundos y últimos 10 minutos) que visualice picos de consumo de RAM sin sobrecargar la CPU.
 - [ ] **Desglose de Memoria PSS Detallado**:
   - `Private Dirty RAM` (Memoria propia y modificada por la app).

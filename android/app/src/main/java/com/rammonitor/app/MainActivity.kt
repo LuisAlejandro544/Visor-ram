@@ -18,6 +18,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.rammonitor.app.data.model.MemoryPeakStats
 import com.rammonitor.app.data.monitor.MemoryReader
 import com.rammonitor.app.data.shizuku.ShizukuManager
 import com.rammonitor.app.service.RamMonitorService
@@ -43,7 +44,7 @@ import kotlinx.coroutines.launch
  *    bloqueando el acceso hasta que se verifiquen los privilegios ADB/Root.
  * 3. Al autorizar Shizuku, ejecuta automáticamente la concesión de permisos privilegiados
  *    a través de IPackageManager (PACKAGE_USAGE_STATS).
- * 4. Gestiona la barra de navegación inferior y el ciclo de vida del servicio.
+ * 4. Gestiona la barra de navegación inferior, ciclo de vida del servicio y telemetría de picos.
  */
 class MainActivity : ComponentActivity() {
 
@@ -119,12 +120,15 @@ class MainActivity : ComponentActivity() {
 
         // Recolectamos el estado reactivo del servicio
         val serviceMemoryStats by RamMonitorService.memoryState.collectAsStateWithLifecycle()
+        val servicePeakStats by RamMonitorService.peakStatsState.collectAsStateWithLifecycle()
         val serviceProcesses by RamMonitorService.processListState.collectAsStateWithLifecycle()
         val isServiceRunning by RamMonitorService.isServiceRunning.collectAsStateWithLifecycle()
 
         // Estado local en caso de que el servicio esté pausado
         var localMemoryStats by remember { mutableStateOf(serviceMemoryStats) }
+        var localPeakStats by remember { mutableStateOf(servicePeakStats) }
         var localProcesses by remember { mutableStateOf(serviceProcesses) }
+        val localAppPeakCache = remember { mutableMapOf<String, Long>() }
 
         val context = this@MainActivity
         val memoryReader = remember { MemoryReader(context) }
@@ -135,13 +139,44 @@ class MainActivity : ComponentActivity() {
                 while (isActive) {
                     val stats = memoryReader.readSystemMemory()
                     localMemoryStats = stats
-                    localProcesses = memoryReader.readRunningProcesses(stats.totalRamBytes)
+
+                    val procs = memoryReader.readRunningProcesses(stats.totalRamBytes, localAppPeakCache)
+                    procs.forEach { p ->
+                        val prev = localAppPeakCache[p.packageName] ?: 0L
+                        if (p.ramUsageBytes > prev) localAppPeakCache[p.packageName] = p.ramUsageBytes
+                    }
+                    localProcesses = procs
+
+                    // Registro de picos en modo local
+                    val prevPeak = localPeakStats
+                    val isFirst = prevPeak.sampleCount == 0L
+                    val isNewPeak = isFirst || stats.usedRamBytes >= prevPeak.peakUsedRamBytes
+                    val newPeakBytes = if (isFirst) stats.usedRamBytes else maxOf(prevPeak.peakUsedRamBytes, stats.usedRamBytes)
+                    val newPeakPct = if (isNewPeak) stats.usedPercentage else prevPeak.peakUsedPercentage
+                    val newPeakTs = if (isNewPeak) stats.timestamp else prevPeak.peakTimestamp
+                    val newMinBytes = if (isFirst) stats.usedRamBytes else minOf(prevPeak.minUsedRamBytes, stats.usedRamBytes)
+                    val newMinPct = if (isFirst) stats.usedPercentage else minOf(prevPeak.minUsedPercentage, stats.usedPercentage)
+                    val topApp = procs.maxByOrNull { it.peakRamBytes }
+
+                    localPeakStats = prevPeak.copy(
+                        peakUsedPercentage = newPeakPct,
+                        peakUsedRamBytes = newPeakBytes,
+                        peakTimestamp = if (newPeakTs == 0L) stats.timestamp else newPeakTs,
+                        minUsedPercentage = newMinPct,
+                        minUsedRamBytes = newMinBytes,
+                        sampleCount = prevPeak.sampleCount + 1,
+                        topPeakAppName = topApp?.appName ?: prevPeak.topPeakAppName,
+                        topPeakAppPackage = topApp?.packageName ?: prevPeak.topPeakAppPackage,
+                        topPeakAppRamBytes = topApp?.peakRamBytes ?: prevPeak.topPeakAppRamBytes
+                    )
+
                     delay(2000L)
                 }
             }
         }
 
         val activeStats = if (isServiceRunning) serviceMemoryStats else localMemoryStats
+        val activePeakStats = if (isServiceRunning) servicePeakStats else localPeakStats
         val activeProcesses = if (isServiceRunning) serviceProcesses else localProcesses
 
         val screens = listOf(Screen.Dashboard, Screen.ProcessList, Screen.Settings)
@@ -183,8 +218,17 @@ class MainActivity : ComponentActivity() {
                 composable(Screen.Dashboard.route) {
                     DashboardScreen(
                         memoryStats = activeStats,
+                        peakStats = activePeakStats,
                         processes = activeProcesses,
                         isServiceRunning = isServiceRunning,
+                        onResetPeak = {
+                            if (isServiceRunning) {
+                                RamMonitorService.resetPeakStats()
+                            } else {
+                                localAppPeakCache.clear()
+                                localPeakStats = MemoryPeakStats(sessionStartTime = System.currentTimeMillis())
+                            }
+                        },
                         onNavigateToProcesses = {
                             navController.navigate(Screen.ProcessList.route)
                         }

@@ -33,6 +33,15 @@ jobs:
         run: |
           chmod +x ./android/gradlew
 
+      - name: Verificar y restaurar Gradle Wrapper JAR si no existe
+        run: |
+          if [ ! -s "./android/gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Aviso: gradle-wrapper.jar no encontrado o vacío. Descargando Gradle Wrapper 8.9..."
+            mkdir -p ./android/gradle/wrapper
+            curl -sLo ./android/gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
+          fi
+          ls -lh ./android/gradle/wrapper/gradle-wrapper.jar
+
       - name: Compilar APK Debug (Sin Caché / Limpio)
         working-directory: ./android
         run: |

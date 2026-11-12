@@ -104,7 +104,10 @@ class MemoryReader(private val context: Context) {
      * Obtiene la lista de procesos activos y su consumo de memoria RAM.
      * Ejecuta el análisis en [Dispatchers.Default] y [Dispatchers.IO] para evitar cualquier tirón en la interfaz.
      */
-    suspend fun readRunningProcesses(totalRamBytes: Long): List<ProcessInfo> = withContext(Dispatchers.IO) {
+    suspend fun readRunningProcesses(
+        totalRamBytes: Long,
+        appPeakMap: Map<String, Long> = emptyMap()
+    ): List<ProcessInfo> = withContext(Dispatchers.IO) {
         val runningProcesses = activityManager.runningAppProcesses ?: return@withContext emptyList()
         val pids = runningProcesses.map { it.pid }.toIntArray()
 
@@ -142,6 +145,9 @@ class MemoryReader(private val context: Context) {
                 else -> "Segundo plano"
             }
 
+            val cachedPeak = appPeakMap[pkgName] ?: pssBytes
+            val effectivePeak = maxOf(cachedPeak, pssBytes)
+
             results.add(
                 ProcessInfo(
                     pid = appProcess.pid,
@@ -152,7 +158,8 @@ class MemoryReader(private val context: Context) {
                     ramPercentage = percentage,
                     isSystemApp = isSystem,
                     importance = importanceLabel,
-                    pssKb = pssKb
+                    pssKb = pssKb,
+                    peakRamBytes = effectivePeak
                 )
             )
         }

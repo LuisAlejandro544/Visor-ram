@@ -15,7 +15,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rammonitor.app.data.model.MemoryPeakStats
 import com.rammonitor.app.data.model.MemoryStats
 import com.rammonitor.app.data.model.ProcessInfo
 import com.rammonitor.app.service.RamMonitorService
@@ -38,16 +41,20 @@ import com.rammonitor.app.ui.theme.*
  * 
  * Lógica y componentes:
  * 1. Indicador circular y barra de progreso animada con el % de RAM en uso.
- * 2. Cuadrícula de tarjetas con métricas técnicas (Total, Usada, Libre, Caché/Buffers y Swap ZRAM).
- * 3. Control para encender o apagar el servicio en segundo plano (Foreground Service).
- * 4. Resumen de las 3 apps que más memoria consumen con enlace directo a la lista completa.
- * 5. Botón de optimización que llama a `killBackgroundProcesses` del sistema para liberar procesos inactivos.
+ * 2. Indicador visual y sección de Telemetría de Picos de Consumo de RAM (Peak Monitoring)
+ *    para conocer el momento de máxima exigencia en la sesión.
+ * 3. Cuadrícula de tarjetas con métricas técnicas (Total, Usada, Libre, Caché/Buffers y Swap ZRAM).
+ * 4. Control para encender o apagar el servicio en segundo plano (Foreground Service).
+ * 5. Resumen de las 3 apps que más memoria consumen con enlace directo a la lista completa.
+ * 6. Botón de optimización que llama a `killBackgroundProcesses` del sistema para liberar procesos inactivos.
  */
 @Composable
 fun DashboardScreen(
     memoryStats: MemoryStats,
+    peakStats: MemoryPeakStats = MemoryPeakStats.EMPTY,
     processes: List<ProcessInfo>,
     isServiceRunning: Boolean,
+    onResetPeak: () -> Unit = {},
     onNavigateToProcesses: () -> Unit
 ) {
     val context = LocalContext.current
@@ -204,6 +211,29 @@ fun DashboardScreen(
                     trackColor = DarkSurfaceElevated,
                 )
 
+                // Indicadores de consumo actual y pico histórico de la sesión
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Actual: ${animatedPercentage.toInt()}%",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    if (peakStats.peakUsedPercentage > 0f) {
+                        Text(
+                            text = "▲ Pico: ${peakStats.peakUsedPercentage.toInt()}% (${peakStats.formattedPeakTime()})",
+                            color = if (peakStats.peakUsedPercentage >= 85f) RedCritical else if (peakStats.peakUsedPercentage >= 65f) YellowWarning else CyanGlow,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 // Alerta si la memoria está por encima de 85%
                 if (memoryStats.usedPercentage >= 85f || memoryStats.isLowMemory) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -257,6 +287,192 @@ fun DashboardScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
             )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Tarjeta de Telemetría de Picos de Memoria durante la sesión de monitoreo
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    1.dp,
+                    if (peakStats.peakUsedPercentage >= 85f) RedCritical.copy(alpha = 0.5f) else DarkBorder,
+                    RoundedCornerShape(16.dp)
+                ),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = if (peakStats.peakUsedPercentage >= 85f) RedCritical else CyanPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "PICOS DE CONSUMO DE SESIÓN",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    // Botón para reiniciar picos de la sesión
+                    IconButton(
+                        onClick = onResetPeak,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reiniciar picos de sesión",
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (peakStats.sampleCount == 0L || peakStats.peakUsedPercentage <= 0f) {
+                    Text(
+                        text = "Registrando telemetría... Esperando muestras de consumo de RAM.",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Tarjeta: Pico Máximo
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DarkSurfaceElevated)
+                                .border(
+                                    1.dp,
+                                    if (peakStats.peakUsedPercentage >= 85f) RedCritical.copy(alpha = 0.3f) else DarkBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "PICO MÁXIMO",
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${peakStats.peakUsedPercentage.toInt()}%",
+                                    color = if (peakStats.peakUsedPercentage >= 85f) RedCritical else if (peakStats.peakUsedPercentage >= 65f) YellowWarning else CyanGlow,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "${peakStats.peakUsedInGb()} usados",
+                                    color = TextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Hora: ${peakStats.formattedPeakTime()}",
+                                    color = TextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        // Tarjeta: Fluctuación Mínimo vs Pico
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DarkSurfaceElevated)
+                                .border(1.dp, DarkBorder, RoundedCornerShape(10.dp))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "FLUCTUACIÓN",
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "+${String.format(java.util.Locale.US, "%.1f", peakStats.ramDeltaPercentage())}%",
+                                    color = YellowWarning,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Mín: ${peakStats.minUsedInGb()}",
+                                    color = TextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Sesión: ${peakStats.formattedSessionDuration()}",
+                                    color = TextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // App con mayor pico individual en la sesión
+                    peakStats.topPeakAppName?.let { appName ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceElevated)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Mayor pico individual de una app:",
+                                    color = TextMuted,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = appName,
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                            Text(
+                                text = peakStats.formattedTopPeakAppRam(),
+                                color = CyanGlow,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))

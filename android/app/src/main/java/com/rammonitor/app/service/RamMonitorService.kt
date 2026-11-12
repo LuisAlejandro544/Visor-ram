@@ -12,6 +12,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.rammonitor.app.MainActivity
 import com.rammonitor.app.R
+import com.rammonitor.app.data.model.MemoryPeakStats
 import com.rammonitor.app.data.model.MemoryStats
 import com.rammonitor.app.data.model.ProcessInfo
 import com.rammonitor.app.data.monitor.MemoryReader
@@ -32,8 +33,9 @@ import kotlinx.coroutines.launch
  * ¿Para qué sirve?
  * - Se ejecuta silenciosamente en segundo plano sin drenar batería.
  * - Mantiene actualizada la notificación en tiempo real con el porcentaje y GB de RAM consumidos.
- * - Publica flujos de estado reactivos ([memoryState] y [processListState]) para que la interfaz Compose
+ * - Publica flujos de estado reactivos ([memoryState], [peakStatsState] y [processListState]) para que la interfaz Compose
  *   se actualice instantáneamente sin recargas.
+ * - Registra con precisión los picos máximos de RAM alcanzados durante la sesión.
  * - Utiliza un [SupervisorJob] y [Dispatchers.Default] para no comprometer nunca el hilo de la UI.
  */
 class RamMonitorService : Service() {
@@ -53,6 +55,13 @@ class RamMonitorService : Service() {
         private val _memoryState = MutableStateFlow(MemoryStats.EMPTY)
         val memoryState: StateFlow<MemoryStats> = _memoryState.asStateFlow()
 
+        // Picos históricos de consumo registrados durante el monitoreo
+        private val _peakStatsState = MutableStateFlow(MemoryPeakStats.EMPTY)
+        val peakStatsState: StateFlow<MemoryPeakStats> = _peakStatsState.asStateFlow()
+
+        // Caché en memoria para retener el pico individual de cada paquete durante la sesión
+        private val appPeakCache = mutableMapOf<String, Long>()
+
         private val _processListState = MutableStateFlow<List<ProcessInfo>>(emptyList())
         val processListState: StateFlow<List<ProcessInfo>> = _processListState.asStateFlow()
 
@@ -61,6 +70,16 @@ class RamMonitorService : Service() {
 
         // Intervalo de muestreo configurable (3 segundos por defecto para equilibrio óptimo)
         var sampleIntervalMillis: Long = 3000L
+
+        /** Reinicia los registros de picos de la sesión para comenzar una nueva medición */
+        fun resetPeakStats() {
+            synchronized(appPeakCache) {
+                appPeakCache.clear()
+            }
+            _peakStatsState.value = MemoryPeakStats(
+                sessionStartTime = System.currentTimeMillis()
+            )
+        }
 
         /** Inicia el servicio en segundo plano */
         fun start(context: Context) {
@@ -110,12 +129,54 @@ class RamMonitorService : Service() {
                     val stats = memoryReader.readSystemMemory()
                     _memoryState.value = stats
 
-                    val processes = memoryReader.readRunningProcesses(stats.totalRamBytes)
+                    // Pasamos la caché de picos para preservar y enriquecer los picos por app
+                    val processes = synchronized(appPeakCache) {
+                        memoryReader.readRunningProcesses(stats.totalRamBytes, appPeakCache)
+                    }
                     _processListState.value = processes
+
+                    // Actualizamos la caché de picos individuales de cada app
+                    synchronized(appPeakCache) {
+                        processes.forEach { proc ->
+                            val prev = appPeakCache[proc.packageName] ?: 0L
+                            if (proc.ramUsageBytes > prev) {
+                                appPeakCache[proc.packageName] = proc.ramUsageBytes
+                            }
+                        }
+                    }
+
+                    // Calculamos y publicamos los nuevos picos de la sesión
+                    val prevPeak = _peakStatsState.value
+                    val isFirstSample = prevPeak.sampleCount == 0L
+                    val isNewPeak = isFirstSample || stats.usedRamBytes >= prevPeak.peakUsedRamBytes
+                    val newPeakBytes = if (isFirstSample) stats.usedRamBytes else maxOf(prevPeak.peakUsedRamBytes, stats.usedRamBytes)
+                    val newPeakPercentage = if (isNewPeak) stats.usedPercentage else prevPeak.peakUsedPercentage
+                    val newPeakTimestamp = if (isNewPeak) stats.timestamp else prevPeak.peakTimestamp
+
+                    val newMinBytes = if (isFirstSample) stats.usedRamBytes else minOf(prevPeak.minUsedRamBytes, stats.usedRamBytes)
+                    val newMinPercentage = if (isFirstSample) stats.usedPercentage else minOf(prevPeak.minUsedPercentage, stats.usedPercentage)
+
+                    val topAppByPeak = processes.maxByOrNull { it.peakRamBytes }
+                    val topPeakAppName = topAppByPeak?.appName ?: prevPeak.topPeakAppName
+                    val topPeakAppPackage = topAppByPeak?.packageName ?: prevPeak.topPeakAppPackage
+                    val topPeakAppRamBytes = topAppByPeak?.peakRamBytes ?: prevPeak.topPeakAppRamBytes
+
+                    _peakStatsState.value = prevPeak.copy(
+                        peakUsedPercentage = newPeakPercentage,
+                        peakUsedRamBytes = newPeakBytes,
+                        peakTimestamp = if (newPeakTimestamp == 0L) stats.timestamp else newPeakTimestamp,
+                        minUsedPercentage = newMinPercentage,
+                        minUsedRamBytes = newMinBytes,
+                        sampleCount = prevPeak.sampleCount + 1,
+                        topPeakAppName = topPeakAppName,
+                        topPeakAppPackage = topPeakAppPackage,
+                        topPeakAppRamBytes = topPeakAppRamBytes
+                    )
 
                     // Actualizamos la notificación del sistema
                     val title = "RAM en uso: ${stats.usedPercentage.toInt()}% (${stats.usedInGb()} / ${stats.totalInGb()})"
-                    val topApp = processes.firstOrNull()?.let { "Mayor consumo: ${it.appName} (${it.ramInMb()})" } ?: "Libre: ${stats.availableInGb()}"
+                    val peakInfo = if (_peakStatsState.value.peakUsedPercentage > 0f) " • Pico: ${_peakStatsState.value.peakUsedPercentage.toInt()}%" else ""
+                    val topApp = processes.firstOrNull()?.let { "Mayor: ${it.appName} (${it.ramInMb()})$peakInfo" } ?: "Libre: ${stats.availableInGb()}"
                     
                     val notification = buildNotification(title, topApp)
                     notificationManager.notify(NOTIFICATION_ID, notification)

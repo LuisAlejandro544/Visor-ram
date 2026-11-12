@@ -22,7 +22,8 @@ Este documento detalla la organización de carpetas, responsabilidades de cada m
 │   │           ├── data/
 │   │           │   ├── model/
 │   │           │   │   ├── MemoryStats.kt          # Modelo inmutable de métricas del kernel
-│   │           │   │   └── ProcessInfo.kt          # Modelo inmutable de proceso individual
+│   │           │   │   ├── MemoryPeakStats.kt      # Registro inmutable de picos históricos de RAM
+│   │           │   │   └── ProcessInfo.kt          # Modelo inmutable de proceso individual con pico de PSS
 │   │           │   ├── monitor/
 │   │           │   │   └── MemoryReader.kt         # Lector asíncrono (/proc/meminfo + PSS)
 │   │           │   └── shizuku/

@@ -17,6 +17,7 @@ package com.rammonitor.app.data.model
  * @property isSystemApp True si la app reside en /system o /product, False si es descargada por el usuario.
  * @property importance Nivel de importancia de Android (Foreground, Visible, Service, Cached).
  * @property pssKb PSS en Kilobytes para cálculos precisos.
+ * @property peakRamBytes Pico máximo de consumo en bytes registrado para este proceso durante la sesión.
  */
 data class ProcessInfo(
     val pid: Int,
@@ -27,7 +28,8 @@ data class ProcessInfo(
     val ramPercentage: Float,
     val isSystemApp: Boolean = false,
     val importance: String = "Background",
-    val pssKb: Int = 0
+    val pssKb: Int = 0,
+    val peakRamBytes: Long = ramUsageBytes
 ) {
     /** Formato amigable en Megabytes (ej: "340.5 MB") */
     fun ramInMb(): String = String.format("%.1f MB", ramUsageBytes / (1024.0 * 1024.0))
@@ -35,6 +37,16 @@ data class ProcessInfo(
     /** Formato amigable en Gigabytes si supera 1 GB */
     fun formattedRam(): String {
         val mb = ramUsageBytes / (1024.0 * 1024.0)
+        return if (mb >= 1024) {
+            String.format("%.2f GB", mb / 1024.0)
+        } else {
+            String.format("%.1f MB", mb)
+        }
+    }
+
+    /** Formato amigable del pico de consumo registrado para este proceso */
+    fun formattedPeakRam(): String {
+        val mb = peakRamBytes / (1024.0 * 1024.0)
         return if (mb >= 1024) {
             String.format("%.2f GB", mb / 1024.0)
         } else {

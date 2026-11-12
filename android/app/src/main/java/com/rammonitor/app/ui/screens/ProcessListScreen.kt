@@ -216,7 +216,13 @@ fun ProcessListScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(text = "Paquete: ${proc.packageName}", color = TextSecondary, fontSize = 12.sp)
                     Text(text = "PID: ${proc.pid}", color = TextSecondary, fontSize = 12.sp)
-                    Text(text = "Memoria PSS: ${proc.formattedRam()} (${proc.pssKb} KB)", color = CyanGlow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Memoria PSS actual: ${proc.formattedRam()} (${proc.pssKb} KB)", color = CyanGlow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Pico registrado en sesión: ${proc.formattedPeakRam()}",
+                        color = if (proc.peakRamBytes > proc.ramUsageBytes) YellowWarning else CyanGlow,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Text(text = "Tipo: ${if (proc.isSystemApp) "App de Sistema" else "App de Usuario"}", color = TextSecondary, fontSize = 12.sp)
                     Text(text = "Prioridad Android: ${proc.importance}", color = TextSecondary, fontSize = 12.sp)
                     
@@ -319,11 +325,20 @@ fun ProcessCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "${String.format("%.1f", process.ramPercentage)}% RAM",
-                        color = TextSecondary,
-                        fontSize = 11.sp
-                    )
+                    if (process.peakRamBytes > process.ramUsageBytes) {
+                        Text(
+                            text = "▲ Pico: ${process.formattedPeakRam()}",
+                            color = YellowWarning,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Text(
+                            text = "${String.format("%.1f", process.ramPercentage)}% RAM",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
 
